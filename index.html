@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>E-com Reconciler — Installable</title>
+
+<!-- Link to real manifest (recommended). If manifest.json doesn't exist on the server,
+     the script below will create a blob manifest and attach it as a fallback. -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0b84ff">
+
+<!-- iOS support -->
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+<!-- Libraries -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f6f8fb; --card:#ffffff; --muted:#6b7280; --accent:#0b84ff; --success:#16a34a; --danger:#ef4444;
+  --panel:#fbfdff; --border:#e6eef8;
+}
+*{box-sizing:border-box;font-family:'Inter',system-ui,Segoe UI,Roboto,Arial}
+body{margin:0;background:linear-gradient(180deg,#f6f8fb,#eef2ff);color:#0b1220;padding:18px}
+.app{max-width:1200px;margin:12px auto;display:grid;grid-template-columns:360px 1fr;gap:18px}
+.card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 6px 24px rgba(16,24,40,0.06);border:1px solid var(--border)}
+header{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.brand{width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#7c3aed);display:flex;align-items:center;justify-content:center;font-weight:800;color:white;font-size:20px}
+h1{font-size:18px;margin:0}
+.muted{color:var(--muted);font-size:13px}
+.small{font-size:13px;color:var(--muted)}
+.sidebar{display:flex;flex-direction:column;height:calc(100vh - 64px);gap:12px;overflow:auto}
+.file-row{display:flex;flex-direction:column;gap:8px}
+.btn{background:var(--accent);border:none;padding:10px 12px;border-radius:10px;color:white;font-weight:700;cursor:pointer}
+.btn.ghost{background:transparent;border:1px solid rgba(11,132,255,0.12);color:var(--accent);font-weight:700}
+.input-file{display:flex;gap:8px;align-items:center}
+input[type="file"]{display:none}
+label.file-label{display:inline-block;background:#f8fbff;padding:8px;border-radius:8px;cursor:pointer;border:1px dashed rgba(11,132,255,0.08);font-weight:600;color:var(--muted)}
+.kv{display:flex;justify-content:space-between;gap:4px}
+.toolbar{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.stat{padding:14px;border-radius:10px;background:linear-gradient(180deg,#fff,#fbfdff);border:1px solid #eef6ff}
+.stat h3{margin:0;font-size:14px}
+.big{font-size:20px;font-weight:800;margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px;text-align:left;border-bottom:1px dashed #f1f5f9}
+th{font-weight:700;color:var(--muted);font-size:12px}
+.good{color:var(--success);font-weight:700}
+.bad{color:var(--danger);font-weight:700}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.modal-back{position:fixed;inset:0;background:rgba(11,24,40,0.45);display:none;align-items:center;justify-content:center;z-index:60}
+.modal{width:880px;max-width:95%;background:var(--card);padding:16px;border-radius:12px;border:1px solid var(--border)}
+.map-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.map-row select,input{flex:1;padding:8px;border-radius:8px;border:1px solid #eef6ff;background:#fbfdff;color:inherit}
+.footer-note{font-size:13px;color:var(--muted)}
+kbd{background:#f1f5f9;border-radius:6px;padding:2px 6px;font-weight:700}
+.notice { padding:10px;border-radius:8px;background:#fff8e6;border:1px solid #fbe2a8;color:#7a5a00;margin-bottom:8px}
+@media (max-width:980px){.app{grid-template-columns:1fr; padding-bottom:40px}.grid{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:640px){.grid{grid-template-columns:1fr}.sidebar{height:auto}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- LEFT -->
+  <aside class="card sidebar">
+    <header>
+      <div class="brand">AR</div>
+      <div>
+        <h1>E-com Reconciler</h1>
+        <div class="muted">Upload settlement files → Auto analyze profit/loss</div>
+      </div>
+    </header>
+
+    <div id="installNotice" class="notice" style="display:none"></div>
+
+    <div class="file-row">
+      <div class="small">1) Upload settlement files (CSV / XLSX / XLS)</div>
+      <div class="input-file">
+        <label class="file-label" for="settlementFiles">Choose files</label>
+        <input id="settlementFiles" type="file" multiple accept=".csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"/>
+        <button class="btn ghost" id="clearFiles">Clear</button>
+      </div>
+      <div class="small">Detected files: <span id="fileCount">0</span></div>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #f1f5f9">
+
+    <div class="file-row">
+      <div class="small">2) Upload SKU → COGS (CSV / XLSX). Columns: <code>sku,cogs</code></div>
+      <div class="input-file">
+        <label class="file-label" for="cogsFile">Upload COGS</label>
+        <input id="cogsFile" type="file" accept=".csv,.xlsx,.xls"/>
+        <button class="btn ghost" id="clearCogs">Clear</button>
+      </div>
+      <div class="small">You can later set COGS per SKU by clicking a transaction row.</div>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #f1f5f9">
+
+    <div>
+      <div class="small">3) Parse & mapping</div>
+      <div class="controls">
+        <button class="btn" id="autoParse">Auto-parse files</button>
+        <button class="btn ghost" id="openMapper">Open column mapper</button>
+      </div>
+      <div class="small" style="margin-top:8px">Presets for Meesho / Myntra / Flipkart / Amazon available. Use mapper when needed.</div>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #f1f5f9">
+
+    <div>
+      <div class="small">4) Reconcile & analyze</div>
+      <div class="controls">
+        <button class="btn" id="runAnalysis">Run analysis</button>
+        <button class="btn ghost" id="exportReport">Export JSON</button>
+      </div>
+      <div class="small" style="margin-top:8px">Export for accounting or share JSON.</div>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #f1f5f9">
+
+    <div>
+      <div class="small">5) Tally / Accounting</div>
+      <div class="controls">
+        <button class="btn" id="exportTally">Export Tally Excel</button>
+        <button class="btn ghost" id="downloadSampleTally">Sample Tally Format</button>
+      </div>
+      <div class="small" style="margin-top:8px">Generates an XLSX with voucher-like rows (generic). Edit ledger names in settings if needed.</div>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #f1f5f9">
+
+    <div>
+      <div class="small">PWA & Hosting</div>
+      <div class="controls">
+        <button class="btn" id="installBtn">Install App (PWA)</button>
+        <button class="btn ghost" id="registerSW">Enable/Refresh Offline (Service Worker)</button>
+      </div>
+      <div class="small" style="margin-top:8px">If the native install prompt still doesn't appear, add <code>manifest.json</code> and <code>sw.js</code> at the repo root as explained in the docs.</div>
+    </div>
+
+    <div style="margin-top:auto" class="small">Version 1.2 • Local & PWA • No server required for processing</div>
+  </aside>
+
+  <!-- RIGHT -->
+  <main>
+    <div class="card toolbar">
+      <div>
+        <h2 style="margin:0">Dashboard</h2>
+        <div class="muted">Overview, platform breakdown & transactions</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div class="muted">Search</div>
+        <input id="globalSearch" class="small" placeholder="search sku or order id" style="padding:8px;border-radius:8px;border:1px solid #eef6ff;background:#fff"/>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:12px">
+      <div class="stat">
+        <h3>Total revenue</h3>
+        <div class="big" id="totalRevenue">—</div>
+        <div class="muted">Sum of final settlement amounts</div>
+      </div>
+
+      <div class="stat">
+        <h3>Total COGS</h3>
+        <div class="big" id="totalCogs">—</div>
+        <div class="muted">Sum of COGS for sold items</div>
+      </div>
+
+      <div class="stat">
+        <h3>Estimated Profit</h3>
+        <div class="big" id="totalProfit">—</div>
+        <div class="muted">Revenue − COGS − Fees − Shipping − Returns − Tax</div>
+      </div>
+    </div>
+
+    <div style="margin-top:12px;display:flex;gap:12px;flex-wrap:wrap">
+      <div class="card" style="flex:1;min-width:260px;min-height:260px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <strong>Platform breakdown</strong>
+          <div class="muted" id="platformCount">—</div>
+        </div>
+        <canvas id="platformChart" style="max-height:240px"></canvas>
+      </div>
+
+      <div class="card" style="width:420px;min-width:260px;min-height:260px;display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <strong>Top SKUs by profit</strong>
+          <div class="muted">Top 8</div>
+        </div>
+        <div style="margin-top:8px;overflow:auto">
+          <table id="skuTable"><thead><tr><th>SKU</th><th>Sales</th><th>COGS</th><th>Profit</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:12px" class="card">
+      <strong>Transactions</strong>
+      <div class="muted" style="margin-top:6px">Click a row to set / edit COGS for its SKU (fuzzy-match suggestions shown automatically).</div>
+      <div style="margin-top:10px;overflow:auto;max-height:420px">
+        <table id="txTable">
+          <thead><tr>
+            <th>Order ID</th><th>Platform</th><th>SKU</th><th>Sale</th><th>Fee</th><th>Shipping</th><th>Return</th><th>COGS</th><th>Profit</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top:12px" class="card footer-note">
+      <strong>How to use (quick)</strong>
+      <ol>
+        <li>Upload settlement files (CSV/XLSX). Click <kbd>Auto-parse</kbd>.</li>
+        <li>Upload COGS file (sku,cogs) or set COGS manually by clicking transaction rows.</li>
+        <li>Click <kbd>Run analysis</kbd> to compute profits & view charts.</li>
+        <li>Click <kbd>Export Tally Excel</kbd> to get a Tally-ready XLSX (generic voucher rows).</li>
+        <li>To install on mobile/desktop, host the file via HTTPS and use the <kbd>Install App</kbd> button or browser install option. For best results add separate <code>manifest.json</code> & <code>sw.js</code> at repo root.</li>
+      </ol>
+    </div>
+  </main>
+</div>
+
+<!-- Mapper modal -->
+<div class="modal-back" id="modalBack">
+  <div class="modal">
+    <h3>Column mapper</h3>
+    <div class="muted">Upload a sample file and assign columns to canonical fields.</div>
+    <div style="margin-top:12px">
+      <div class="small">Upload one representative file</div>
+      <input id="mapperSample" type="file" accept=".csv,.xlsx,.xls" style="margin-top:8px"/>
+    </div>
+    <div id="mapperFields" style="margin-top:12px"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+      <button class="btn ghost" id="closeMapper">Close</button>
+      <button class="btn" id="saveMapping">Save mapping</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- Utilities ---------- */
+function readFileAsText(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsText(file); }); }
+function readFileAsBuffer(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsArrayBuffer(file); }); }
+function workbookToCSVString(workbook){ const first = workbook.SheetNames[0]; return XLSX.utils.sheet_to_csv(workbook.Sheets[first]); }
+
+function parseCSV(text){
+  const lines = text.split(/\r\n|\n/).filter(Boolean);
+  if(lines.length===0) return {headers:[], rows:[]};
+  const delims=[',','\t',';','|'];
+  let delim=',';
+  for(const d of delims){ if(lines[0].split(d).length>1){delim=d;break;} }
+  const splitLine = (line)=>{
+    let out=[]; let cur=''; let inQ=false;
+    for(let i=0;i<line.length;i++){
+      const ch=line[i];
+      if(ch === '"'){ if(inQ && line[i+1]==='"'){ cur+='"'; i++; continue; } inQ=!inQ; continue; }
+      if(!inQ && ch===delim){ out.push(cur); cur=''; } else cur+=ch;
+    }
+    out.push(cur);
+    return out.map(x=>x.trim());
+  };
+  const headers = splitLine(lines[0]).map(h=>h || 'col' + Math.random().toString(36).slice(2,6));
+  const rows=[];
+  for(let i=1;i<lines.length;i++){
+    const cells = splitLine(lines[i]);
+    const obj={};
+    for(let j=0;j<headers.length;j++){
+      obj[headers[j]] = cells[j] !== undefined ? cells[j] : '';
+    }
+    if(Object.values(obj).every(v=>String(v).trim()==='')) continue;
+    rows.push(obj);
+  }
+  return {headers, rows};
+}
+
+function toNumber(v){ if(v==null) return 0; const n=String(v).replace(/[^0-9.\-]/g,''); return n===''?0:parseFloat(n); }
+function formatINR(n){ if(n===undefined||n===null||isNaN(n)) return '-'; return '₹' + Number(n).toLocaleString('en-IN',{maximumFractionDigits:2}); }
+function escapeHTML(s){ return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+/* ---------- App state ---------- */
+const state = { files:[], parsedRows:[], cogs:{}, mapping:{}, platformSumm:{}, presets:{} };
+
+/* Presets (same as before) */
+state.presets = {
+  Meesho:{match:[/meesho/i,/final settlement/i], fields:{order_id:['Order ID','Order No'], sku:['Seller SKU','SKU'], settlement_amount:['Final Settlement Amount','Settlement Amount'], platform_fee:['Commission Amount','Commission'], shipping_charge:['Shipping'], tax:['Tax']}},
+  Flipkart:{match:[/flipkart/i], fields:{order_id:['Order ID','Order Id'], sku:['Item SKU','Seller SKU'], settlement_amount:['Settlement Amount','Settled Amount','Final Settlement Amount'], platform_fee:['Commission','Marketplace Fee'], shipping_charge:['Shipping Charge'], return_amount:['Return Amount','Refund']}},
+  Amazon:{match:[/amazon/i], fields:{order_id:['order-id','Order ID'], sku:['sku','SKU','ASIN'], settlement_amount:['item-price','Total','Posted Amount','Total Amount'], platform_fee:['Fee','Fees'], shipping_charge:['Shipping']}},
+  Myntra:{match:[/myntra/i], fields:{order_id:['Order ID','Order No'], sku:['SKU','Seller SKU'], settlement_amount:['Settlement Amount','Final Settlement Amount'], platform_fee:['Commission']}}
+};
+
+/* ---------- DOM elements ---------- */
+const settlementFilesInput = document.getElementById('settlementFiles');
+const cogsFileInput = document.getElementById('cogsFile');
+const fileCountEl = document.getElementById('fileCount');
+const mapperSample = document.getElementById('mapperSample');
+const modalBack = document.getElementById('modalBack');
+const installNotice = document.getElementById('installNotice');
+
+/* ---------- File handlers ---------- */
+settlementFilesInput.addEventListener('change',(ev)=>{ state.files = Array.from(ev.target.files||[]); fileCountEl.textContent = state.files.length; });
+document.getElementById('clearFiles').addEventListener('click', ()=>{ settlementFilesInput.value=''; state.files=[]; fileCountEl.textContent=0; alert('Settlement files cleared.'); });
+
+cogsFileInput.addEventListener('change', async (ev)=>{
+  const f = ev.target.files[0]; if(!f) return;
+  try {
+    const ext = f.name.split('.').pop().toLowerCase();
+    let csvText = '';
+    if(ext==='csv'||ext==='txt'){ csvText = await readFileAsText(f); }
+    else { const buf = await readFileAsBuffer(f); const wb = XLSX.read(buf,{type:'array'}); csvText = workbookToCSVString(wb); }
+    const {headers, rows} = parseCSV(csvText);
+    const lower = headers.map(h=>h.toLowerCase());
+    let skuCol = headers[lower.findIndex(h=>/sku|seller sku|product|article/i.test(h))] || headers[0];
+    let cogsCol = headers[lower.findIndex(h=>/cog|cost|purchase|cp|price|mrp/i.test(h))] || headers[1] || headers[0];
+    rows.forEach(r=>{ const sku=(r[skuCol]||'').trim(); const c=toNumber(r[cogsCol]); if(sku) state.cogs[sku]=c; });
+    alert('COGS loaded — ' + Object.keys(state.cogs).length + ' SKUs.');
+  } catch(e){ console.error(e); alert('Failed to read COGS file.'); }
+});
+document.getElementById('clearCogs').addEventListener('click', ()=>{ cogsFileInput.value=''; state.cogs={}; alert('COGS cleared.'); });
+
+/* ---------- Auto-parse ---------- */
+document.getElementById('autoParse').addEventListener('click', async ()=>{
+  if(!state.files.length) return alert('Please select settlement files first.');
+  state.parsedRows = [];
+  for(const f of state.files){
+    try {
+      const ext = f.name.split('.').pop().toLowerCase();
+      let csvText='';
+      if(ext==='csv'||ext==='txt'){ csvText = await readFileAsText(f); }
+      else { const buf = await readFileAsBuffer(f); const wb = XLSX.read(buf,{type:'array'}); csvText = workbookToCSVString(wb); }
+      const {headers, rows} = parseCSV(csvText);
+      const headerLower = headers.map(h=>h.toLowerCase()).join(' ');
+      const fname = f.name.toLowerCase();
+      let platform = 'Generic';
+      for(const p of Object.keys(state.presets)){ const pr = state.presets[p]; if(pr.match.some(rx=>rx.test(fname) || rx.test(headerLower))){ platform = p; break; } }
+      const pickField = (cands)=>{ for(const c of cands){ for(const h of headers){ if(h.toLowerCase().includes(c.toLowerCase().replace(/\s/g,''))) return h; } } return null; };
+      const presetFields = {};
+      if(state.presets[platform] && state.presets[platform].fields){
+        for(const key in state.presets[platform].fields){
+          const header = pickField(state.presets[platform].fields[key]) || state.mapping[key] || null;
+          if(header) presetFields[key] = header;
+        }
+      } else {
+        presetFields.order_id = headers.find(h=>/order.*id|order no|sub order|transaction id/i.test(h)) || headers[0];
+        presetFields.sku = headers.find(h=>/sku|seller sku|item sku|product sku/i.test(h)) || headers[1] || headers[0];
+        presetFields.settlement_amount = headers.find(h=>/settlement|final settlement|final settlement amount|settled amount|net amount/i.test(h)) || headers.find(h=>/amount|paid|total/i.test(h));
+      }
+
+      rows.forEach(r=>{
+        const obj = {
+          platform,
+          filename: f.name,
+          order_id: presetFields.order_id ? (r[presetFields.order_id]||'') : (r[headers[0]]||''),
+          sku: presetFields.sku ? (r[presetFields.sku]||'') : (r[headers[1]]||''),
+          qty: presetFields.qty ? toNumber(r[presetFields.qty]) : (toNumber(r['Quantity'])||1),
+          sale_price: presetFields.sale_price ? toNumber(r[presetFields.sale_price]) : toNumber(r[presetFields.settlement_amount]) || 0,
+          settlement_amount: presetFields.settlement_amount ? toNumber(r[presetFields.settlement_amount]) : toNumber(r[presetFields.sale_price]) || 0,
+          platform_fee: presetFields.platform_fee ? toNumber(r[presetFields.platform_fee]) : toNumber(r['Commission']||r['Commission Amount']||0),
+          shipping_charge: presetFields.shipping_charge ? toNumber(r[presetFields.shipping_charge]) : toNumber(r['Shipping Charges']||r['Shipping Charge']||0),
+          tax: presetFields.tax ? toNumber(r[presetFields.tax]) : toNumber(r['Tax']||r['GST']||0),
+          return_amount: presetFields.return_amount ? toNumber(r[presetFields.return_amount]) : toNumber(r['Return Amount']||r['Refund']||0),
+          raw: r
+        };
+        if(!obj.settlement_amount && obj.sale_price) obj.settlement_amount = obj.sale_price;
+        state.parsedRows.push(obj);
+      });
+    } catch(e){ console.error('file parse error', e); alert('Error parsing file: ' + f.name); }
+  }
+
+  alert('Parsed ' + state.parsedRows.length + ' rows from ' + state.files.length + ' file(s). Now run analysis.');
+  renderTransactions();
+});
+
+/* ---------- Mapper ---------- */
+let mapperHeaders = []; let tempMapping = {};
+document.getElementById('openMapper').addEventListener('click', ()=>{ modalBack.style.display='flex'; });
+document.getElementById('closeMapper').addEventListener('click', ()=>{ modalBack.style.display='none'; mapperSample.value=''; document.getElementById('mapperFields').innerHTML=''; });
+
+mapperSample.addEventListener('change', async (ev)=>{
+  const f = ev.target.files[0]; if(!f) return;
+  try {
+    const ext = f.name.split('.').pop().toLowerCase();
+    let csvText='';
+    if(ext==='csv'||ext==='txt'){ csvText = await readFileAsText(f); }
+    else { const buf = await readFileAsBuffer(f); const wb = XLSX.read(buf,{type:'array'}); csvText = workbookToCSVString(wb); }
+    const {headers} = parseCSV(csvText);
+    mapperHeaders = headers;
+    const container = document.getElementById('mapperFields'); container.innerHTML='';
+    const fields = ['order_id','sku','qty','sale_price','settlement_amount','platform_fee','shipping_charge','tax','return_amount'];
+    fields.forEach(k=>{
+      const row = document.createElement('div'); row.className='map-row';
+      const lab = document.createElement('div'); lab.style.width='120px'; lab.textContent=k; lab.className='muted';
+      const sel = document.createElement('select'); const opt0 = document.createElement('option'); opt0.value=''; opt0.textContent='— select header —'; sel.appendChild(opt0);
+      headers.forEach(h=>{ const o=document.createElement('option'); o.value=h; o.textContent=h; sel.appendChild(o); });
+      sel.value = state.mapping[k] || '';
+      sel.addEventListener('change',(e)=>{ tempMapping[k] = e.target.value; });
+      row.appendChild(lab); row.appendChild(sel); container.appendChild(row);
+      tempMapping[k] = state.mapping[k] || '';
+    });
+  } catch(e){ console.error(e); alert('Failed to read sample file for mapping.'); }
+});
+document.getElementById('saveMapping').addEventListener('click', ()=>{ state.mapping = {...state.mapping, ...tempMapping}; modalBack.style.display='none'; alert('Mapping saved. Use Auto-parse to apply it.'); });
+
+/* ---------- Analysis ---------- */
+document.getElementById('runAnalysis').addEventListener('click', ()=>{
+  if(state.parsedRows.length===0) return alert('No parsed transactions. Use Auto-parse first.');
+  const cogsSkus = Object.keys(state.cogs || {});
+  const fuse = new Fuse(cogsSkus.map(s=>({sku:s})), {keys:['sku'], threshold:0.4});
+  state.parsedRows.forEach(r=>{
+    const rawSku = (r.sku||'').trim();
+    let matchedCogs = null;
+    if(rawSku && state.cogs[rawSku] !== undefined) matchedCogs = state.cogs[rawSku];
+    if(matchedCogs === null && rawSku && cogsSkus.length){
+      const res = fuse.search(rawSku);
+      if(res && res.length){ const best = res[0].item.sku; r._fuzzyMatch = {suggested:best, score:res[0].score}; if(res[0].score <= 0.25) matchedCogs = state.cogs[best]; }
+    }
+    r.cogs = (matchedCogs !== null) ? matchedCogs : (r.cogs || 0);
+    r.profit = (r.settlement_amount||0) - (r.cogs||0) - (r.platform_fee||0) - (r.shipping_charge||0) - (r.return_amount||0) - (r.tax||0);
+  });
+
+  const byPlatform = {};
+  let totalRevenue=0, totalCogs=0, totalProfit=0;
+  for(const r of state.parsedRows){
+    const p = r.platform || 'Unknown';
+    if(!byPlatform[p]) byPlatform[p] = {rows:[], revenue:0, cogs:0, fees:0, shipping:0, returns:0, tax:0, profit:0};
+    const bp = byPlatform[p];
+    bp.rows.push(r);
+    bp.revenue += Number(r.settlement_amount||0);
+    bp.cogs += Number(r.cogs||0);
+    bp.fees += Number(r.platform_fee||0);
+    bp.shipping += Number(r.shipping_charge||0);
+    bp.returns += Number(r.return_amount||0);
+    bp.tax += Number(r.tax||0);
+    bp.profit += Number(r.profit||0);
+    totalRevenue += Number(r.settlement_amount||0);
+    totalCogs += Number(r.cogs||0);
+    totalProfit += Number(r.profit||0);
+  }
+
+  state.platformSumm = byPlatform;
+  document.getElementById('totalRevenue').textContent = formatINR(totalRevenue);
+  document.getElementById('totalCogs').textContent = formatINR(totalCogs);
+  const profitEl = document.getElementById('totalProfit');
+  profitEl.textContent = formatINR(totalProfit);
+  profitEl.className = totalProfit>=0 ? 'good' : 'bad';
+  document.getElementById('platformCount').textContent = Object.keys(byPlatform).length + ' platforms';
+  renderPlatformChart(byPlatform);
+  renderSkuTable();
+  renderTransactions();
+  alert('Analysis complete. Fuzzy suggestions applied when confident.');
+});
+
+/* ---------- Renderers ---------- */
+let platformChart = null;
+function renderPlatformChart(byPlatform){
+  const labels = Object.keys(byPlatform);
+  const data = labels.map(p=>Number(byPlatform[p].profit.toFixed(2)));
+  const ctx = document.getElementById('platformChart').getContext('2d');
+  if(platformChart) platformChart.destroy();
+  platformChart = new Chart(ctx, {type:'bar', data:{labels, datasets:[{label:'Profit (INR)', data, borderRadius:6, barThickness:26}]}, options:{scales:{y:{beginAtZero:true}}, plugins:{legend:{display:false}}}});
+}
+function renderSkuTable(){
+  const agg={};
+  for(const r of state.parsedRows){
+    const sku = (r.sku || '(no-sku)');
+    if(!agg[sku]) agg[sku] = {sales:0,cogs:0,profit:0,count:0};
+    agg[sku].sales += r.settlement_amount || 0;
+    agg[sku].cogs += r.cogs || 0;
+    agg[sku].profit += r.profit || 0;
+    agg[sku].count += 1;
+  }
+  const arr = Object.keys(agg).map(k=>({sku:k,...agg[k]})).sort((a,b)=>b.profit - a.profit);
+  const top = arr.slice(0,8);
+  const tbody = document.querySelector('#skuTable tbody'); tbody.innerHTML='';
+  top.forEach(row=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${escapeHTML(row.sku)}</td><td>${formatINR(row.sales)}</td><td>${formatINR(row.cogs)}</td><td class="${row.profit>=0?'good':'bad'}">${formatINR(row.profit)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+function renderTransactions(){
+  const tbody = document.querySelector('#txTable tbody'); tbody.innerHTML='';
+  const q = (document.getElementById('globalSearch').value || '').toLowerCase();
+  const rows = state.parsedRows.filter(r=>{ if(!q) return true; return (r.order_id||'').toLowerCase().includes(q) || (r.sku||'').toLowerCase().includes(q); });
+  rows.forEach((r,idx)=>{
+    const tr = document.createElement('tr'); tr.style.cursor='pointer'; tr.dataset.idx = idx;
+    const fuzzyNote = (r._fuzzyMatch && r._fuzzyMatch.suggested) ? `<div class="small" style="color:#555">Suggestion: ${escapeHTML(r._fuzzyMatch.suggested)} (score ${Number(r._fuzzyMatch.score).toFixed(2)})</div>` : '';
+    tr.innerHTML = `<td>${escapeHTML(r.order_id)}${fuzzyNote}</td><td>${escapeHTML(r.platform)}</td><td>${escapeHTML(r.sku)}</td><td>${formatINR(r.settlement_amount)}</td><td>${formatINR(r.platform_fee)}</td><td>${formatINR(r.shipping_charge)}</td><td>${formatINR(r.return_amount)}</td><td>${r.cogs?formatINR(r.cogs):'<span class="muted">set</span>'}</td><td class="${r.profit>=0?'good':'bad'}">${formatINR(r.profit)}</td>`;
+    tbody.appendChild(tr);
+
+    tr.addEventListener('click', ()=> {
+      const sku = r.sku || '';
+      const current = state.cogs[sku] !== undefined ? state.cogs[sku] : (r.cogs || 0);
+      let promptMsg = 'Set COGS for SKU: ' + sku + '\\n(Enter numeric value in INR)\\n';
+      if(r._fuzzyMatch && r._fuzzyMatch.suggested && state.cogs[r._fuzzyMatch.suggested] !== undefined){
+        promptMsg += '\\nSuggested match: ' + r._fuzzyMatch.suggested + ' → ' + formatINR(state.cogs[r._fuzzyMatch.suggested]) + '\\n(You can accept suggestion by typing ACCEPT)';
+      }
+      const ans = prompt(promptMsg, current);
+      if(ans !== null){
+        if(String(ans).trim().toUpperCase() === 'ACCEPT' && r._fuzzyMatch && r._fuzzyMatch.suggested){
+          const matchedSku = r._fuzzyMatch.suggested;
+          const val = state.cogs[matchedSku];
+          if(sku) state.cogs[sku] = val;
+        } else {
+          const val = toNumber(ans);
+          if(sku) state.cogs[sku] = val;
+        }
+        state.parsedRows.forEach(rr=>{ if(rr.sku===sku){ rr.cogs = state.cogs[sku]; rr.profit = rr.settlement_amount - rr.cogs - rr.platform_fee - rr.shipping_charge - rr.return_amount - rr.tax; }});
+        document.getElementById('totalCogs').textContent = formatINR(state.parsedRows.reduce((s,r)=>s+(r.cogs||0),0));
+        document.getElementById('totalProfit').textContent = formatINR(state.parsedRows.reduce((s,r)=>s+(r.profit||0),0));
+        renderSkuTable(); renderTransactions();
+      }
+    });
+  });
+}
+
+/* ---------- Export JSON ---------- */
+document.getElementById('exportReport').addEventListener('click', ()=>{
+  if(state.parsedRows.length===0) return alert('No data to export.');
+  const out = {generated_at:new Date().toISOString(), summary:state.platformSumm, transactions:state.parsedRows, cogs:state.cogs};
+  const blob = new Blob([JSON.stringify(out,null,2)], {type:'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='reconcile-report.json'; a.click();
+});
+
+/* ---------- Tally export (same as before) ---------- */
+function buildTallyRows(){
+  if(state.parsedRows.length===0) return [];
+  const ledgerSales = 'Sales Account';
+  const ledgerCOGS = 'Cost of Goods Sold';
+  const ledgerPlatformFee = 'Marketplace Fees';
+  const ledgerCash = 'Bank Account';
+  const ledgerShipping = 'Shipping Expense';
+  const rows = [];
+  for(const r of state.parsedRows){
+    const date = (new Date()).toISOString().split('T')[0];
+    const order = r.order_id || 'NA';
+    const sku = r.sku || 'NA';
+    const sale = Number(r.settlement_amount || 0);
+    const cogs = Number(r.cogs || 0);
+    const fee = Number(r.platform_fee || 0);
+    const shipping = Number(r.shipping_charge || 0);
+    const returns = Number(r.return_amount || 0);
+
+    rows.push({Date:date, VoucherType:'Sale', OrderID:order, SKU:sku, LedgerDebit:ledgerCash, DebitAmount:sale, LedgerCredit:'Sales Account', CreditAmount:sale, Narration:`Sale ${order} ${sku}`});
+    rows.push({Date:date, VoucherType:'COGS', OrderID:order, SKU:sku, LedgerDebit:ledgerCOGS, DebitAmount:cogs, LedgerCredit:'Inventory', CreditAmount:cogs, Narration:`COGS ${order} ${sku}`});
+    if(fee && fee>0) rows.push({Date:date, VoucherType:'Fee', OrderID:order, SKU:sku, LedgerDebit:ledgerPlatformFee, DebitAmount:fee, LedgerCredit:ledgerCash, CreditAmount:fee, Narration:`Platform fee ${order} ${sku}`});
+    if(shipping && shipping>0) rows.push({Date:date, VoucherType:'Shipping', OrderID:order, SKU:sku, LedgerDebit:ledgerShipping, DebitAmount:shipping, LedgerCredit:ledgerCash, CreditAmount:shipping, Narration:`Shipping ${order} ${sku}`});
+    if(returns && returns>0) rows.push({Date:date, VoucherType:'Return', OrderID:order, SKU:sku, LedgerDebit:'Sales Returns', DebitAmount:returns, LedgerCredit:ledgerCash, CreditAmount:returns, Narration:`Return ${order} ${sku}`});
+  }
+  return rows;
+}
+document.getElementById('exportTally').addEventListener('click', ()=>{
+  if(state.parsedRows.length===0) return alert('No transactions to export.');
+  const rows = buildTallyRows();
+  if(rows.length===0) return alert('No voucher rows generated.');
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'TallyExport');
+  const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+  const blob = new Blob([wbout], {type:'application/octet-stream'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'tally-export.xlsx'; a.click();
+});
+document.getElementById('downloadSampleTally').addEventListener('click', ()=>{
+  const sample = [{Date:'2025-01-01', VoucherType:'Sale', OrderID:'ORD123', SKU:'SKU01', LedgerDebit:'Bank Account', DebitAmount:1000, LedgerCredit:'Sales Account', CreditAmount:1000, Narration:'Sample sale'}];
+  const ws = XLSX.utils.json_to_sheet(sample); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Sample'); const wbout=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+  const blob = new Blob([wbout],{type:'application/octet-stream'}); const a=document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='sample-tally-format.xlsx'; a.click();
+});
+
+/* ---------- Search binding ---------- */
+document.getElementById('globalSearch').addEventListener('input',(e)=>renderTransactions());
+
+/* ---------- PWA: install prompt handling & SW fallback ---------- */
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', (e)=>{ e.preventDefault(); deferredPrompt = e; installNotice.style.display='block'; installNotice.textContent = 'Install prompt available — click "Install App" to install.'; });
+
+document.getElementById('installBtn').addEventListener('click', async ()=>{
+  if(deferredPrompt){
+    try{
+      deferredPrompt.prompt();
+      const choice = await deferredPrompt.userChoice;
+      if(choice.outcome === 'accepted') alert('User accepted the install'); else alert('User dismissed the install');
+      deferredPrompt = null;
+      installNotice.style.display='none';
+    }catch(err){
+      alert('Install failed: ' + err.message);
+    }
+    return;
+  }
+  alert('Install prompt not available. Try using the browser menu → Install (Chrome/Edge) or Add to Home Screen (Safari). For reliable installability, add a real manifest.json and sw.js at the site root (I can provide them).');
+});
+
+/* Attempt to register a real service worker at /sw.js. If that fails, register a blob-based fallback SW.
+   Also check if /manifest.json exists; if not, create a blob manifest and attach it so installability is attempted.
+*/
+async function ensureManifestAndServiceWorker(){
+  // check if /manifest.json is reachable
+  let manifestOk = false;
+  try{
+    const r = await fetch('/manifest.json', {cache:'no-store'});
+    manifestOk = r.ok;
+  }catch(e){ manifestOk = false; }
+
+  if(!manifestOk){
+    // create a blob manifest and attach as link rel=manifest
+    const m = {
+      name: "E-com Reconciler",
+      short_name: "Reconciler",
+      start_url: "./",
+      display: "standalone",
+      background_color: "#f6f8fb",
+      theme_color: "#0b84ff",
+      icons:[
+        {src: '/icons/icon-192.png', sizes:'192x192', type:'image/png'},
+        {src: '/icons/icon-512.png', sizes:'512x512', type:'image/png'}
+      ]
+    };
+    const blob = new Blob([JSON.stringify(m)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    // remove existing manifest link if any then add new
+    const prev = document.querySelector('link[rel="manifest"]'); if(prev) prev.remove();
+    const link = document.createElement('link'); link.rel='manifest'; link.href = url; document.head.appendChild(link);
+    console.log('Attached blob manifest as fallback.');
+  } else {
+    console.log('/manifest.json found on server.');
+  }
+
+  // Try to register /sw.js first
+  if('serviceWorker' in navigator){
+    try {
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      console.log('Registered /sw.js from server', reg);
+      installNotice.style.display='block';
+      installNotice.textContent = 'Service worker (server) registered — app is more likely installable.';
+      return;
+    } catch(err){
+      console.warn('Registration of /sw.js failed (will try blob fallback):', err);
+    }
+
+    // fallback: create a blob service worker
+    try {
+      const swCode = `
+        const CACHE_NAME = 'ecom-reconciler-v1';
+        const ASSETS = ['/', '/index.html', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png',
+          'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js',
+          'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+          'https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js'
+        ];
+        self.addEventListener('install', event => {
+          self.skipWaiting();
+          event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS).catch(()=>{})));
+        });
+        self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+        self.addEventListener('fetch', event => {
+          event.respondWith(caches.match(event.request).then(resp => resp || fetch(event.request)));
+        });
+      `;
+      const blob = new Blob([swCode], {type:'application/javascript'});
+      const swUrl = URL.createObjectURL(blob);
+      const reg2 = await navigator.serviceWorker.register(swUrl);
+      console.log('Registered blob service worker', reg2);
+      installNotice.style.display='block';
+      installNotice.textContent = 'Service worker (blob fallback) registered — try installing from browser menu or the Install button.';
+    } catch(e){
+      console.error('Blob SW registration failed:', e);
+      installNotice.style.display='block';
+      installNotice.textContent = 'Service worker registration failed — check console and add a real /sw.js to your repo root.';
+    }
+  } else {
+    installNotice.style.display='block';
+    installNotice.textContent = 'Service workers not supported in this browser.';
+  }
+}
+
+/* Manual "Enable/Refresh" button attempts to register SW again */
+document.getElementById('registerSW').addEventListener('click', ()=>{ ensureManifestAndServiceWorker(); });
+
+/* Run on load */
+ensureManifestAndServiceWorker();
+
+/* ---------- Initial state ---------- */
+fileCountEl.textContent = 0;
+
+</script>
+</body>
+</html>
